@@ -4,6 +4,7 @@ import {
    Column,
    CreateDateColumn,
    UpdateDateColumn,
+   DeleteDateColumn,
    Index,
    ManyToOne,
    ManyToMany,
@@ -163,4 +164,7 @@ export class NewsEntity {
 
    @UpdateDateColumn({ type: 'timestamp' })
    updatedAt: Date;
+
+   @DeleteDateColumn({ type: 'timestamp', nullable: true })
+   deletedAt?: Date | null;
 }

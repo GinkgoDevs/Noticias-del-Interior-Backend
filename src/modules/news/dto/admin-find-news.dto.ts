@@ -1,4 +1,5 @@
-import { IsOptional, IsEnum, IsUUID, IsBoolean, IsString, IsDateString } from 'class-validator';
+import { IsOptional, IsEnum, IsUUID, IsBoolean, IsString, IsDateString, IsNumber } from 'class-validator';
+import { Type, Transform } from 'class-transformer';
 import { NewsStatus } from '../entities/news.entity';
 
 export class AdminFindNewsDto {
@@ -16,6 +17,7 @@ export class AdminFindNewsDto {
 
     @IsBoolean()
     @IsOptional()
+    @Transform(({ value }) => value === 'true' || value === true)
     featured?: boolean;
 
     @IsString()
@@ -30,9 +32,18 @@ export class AdminFindNewsDto {
     @IsOptional()
     dateTo?: string;
 
+    @IsNumber()
     @IsOptional()
+    @Type(() => Number)
     page?: number = 1;
 
+    @IsNumber()
     @IsOptional()
+    @Type(() => Number)
     limit?: number = 20;
+
+    @IsBoolean()
+    @IsOptional()
+    @Transform(({ value }) => value === 'true' || value === true)
+    withDeleted?: boolean;
 }

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Get, UseGuards } from "@nestjs/common";
+import { Controller, Post, Body, Get, UseGuards, Delete, Param } from "@nestjs/common";
 import { TagsService } from "./tags.service";
 import { CreateTagDto } from "./dto/create-tag.dto";
 import { JwtAuthGuard } from '../auth/guards/jwt-auth.guard';
@@ -21,6 +21,12 @@ export class TagsController {
     @Roles(UserRole.ADMIN, UserRole.EDITOR)
     findAll() {
         return this.tagsService.findAll();
+    }
+
+    @Delete(':id')
+    @Roles(UserRole.ADMIN)
+    remove(@Param('id') id: string) {
+        return this.tagsService.remove(id);
     }
 }
 

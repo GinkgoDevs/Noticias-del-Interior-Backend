@@ -19,4 +19,8 @@ export class TagsService {
     findAll() {
         return this.tagRepo.find({ where: { active: true } });
     }
+
+    async remove(id: string) {
+        return this.tagRepo.delete(id);
+    }
 }

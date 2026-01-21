@@ -100,4 +100,8 @@ export class UpdateNewsDto {
    @IsString()
    @IsOptional()
    canonicalUrl?: string;
+
+   @IsArray()
+   @IsOptional()
+   images?: { url: string; publicId: string; position?: number }[];
 }

@@ -102,4 +102,8 @@ export class CreateNewsDto {
    @IsString()
    @IsOptional()
    legacyUrl?: string;
+
+   @IsArray()
+   @IsOptional()
+   images?: { url: string; publicId: string; position?: number }[];
 }

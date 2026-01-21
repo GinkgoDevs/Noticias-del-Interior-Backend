@@ -1,4 +1,4 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, Ip } from '@nestjs/common';
 import { NewsService } from './news.service';
 import { PublicFindNewsDto } from './dto/public-find-news.dto';
 import { plainToInstance } from 'class-transformer';
@@ -39,8 +39,8 @@ export class NewsPublicController {
     }
 
     @Get(':slug')
-    async findOne(@Param('slug') slug: string) {
-        const item = await this.newsService.findPublicOne(slug);
+    async findOne(@Param('slug') slug: string, @Ip() ip: string) {
+        const item = await this.newsService.findPublicOne(slug, ip);
         const data = plainToInstance(NewsResponseDto, item);
         return ApiResponse.success(data, 'Detalle de noticia');
     }

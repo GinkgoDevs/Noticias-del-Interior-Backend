@@ -79,6 +79,15 @@ export class NewsController {
         return this.newsService.archive(id);
     }
 
+    @Patch(':id/restore')
+    @Roles(UserRole.ADMIN)
+    async restore(
+        @Param('id', ParseUUIDPipe) id: string,
+    ) {
+        const data = await this.newsService.restoreSoftDeleted(id);
+        return ApiResponse.success(data, 'Noticia restaurada correctamente');
+    }
+
     @Delete(':id')
     @Roles(UserRole.ADMIN)
     async remove(

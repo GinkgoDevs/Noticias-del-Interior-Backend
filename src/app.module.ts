@@ -8,12 +8,28 @@ import { CategoryModule } from './modules/categories/categories.module';
 import { NewsModule } from './modules/news/news.module';
 import { TagsModule } from './modules/tags/tags.module';
 import { UploadModule } from './modules/upload/upload.module';
+import { GamesModule } from './modules/games/games.module';
+import { AdsModule } from './modules/ads/ads.module';
+import { NewsletterModule } from './modules/newsletter/newsletter.module';
 import { ScheduleModule } from '@nestjs/schedule';
-import { ConfigModule } from '@nestjs/config';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
+import { APP_GUARD } from '@nestjs/core';
+import { AppController } from "./app.controller";
 
 @Module({
   imports: [
     ConfigModule.forRoot({ isGlobal: true }),
+    ThrottlerModule.forRootAsync({
+      imports: [ConfigModule],
+      inject: [ConfigService],
+      useFactory: (config: ConfigService) => [
+        {
+          ttl: config.get<number>('THROTTLE_TTL', 60000),
+          limit: config.get<number>('THROTTLE_LIMIT', 100),
+        },
+      ],
+    }),
     CacheModule.register({
       ttl: 60,
       max: 1000,
@@ -27,7 +43,17 @@ import { ConfigModule } from '@nestjs/config';
     NewsModule,
     TagsModule,
     UploadModule,
+    GamesModule,
+    AdsModule,
+    NewsletterModule,
     ScheduleModule.forRoot()
+  ],
+  controllers: [AppController],
+  providers: [
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
   ],
 })
 export class AppModule { }
