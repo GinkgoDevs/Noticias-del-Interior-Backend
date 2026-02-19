@@ -1,9 +1,11 @@
 import { Controller, Post, Body, BadRequestException, ConflictException } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBody } from '@nestjs/swagger';
 import { InjectRepository } from '@nestjs/typeorm';
 import { Repository } from 'typeorm';
 import { NewsletterEntity } from './newsletter.entity';
 import { ApiResponse } from '../../common/dto/api-response.dto';
 
+@ApiTags('Marketing - Newsletter')
 @Controller('newsletter')
 export class NewsletterController {
     constructor(
@@ -12,12 +14,16 @@ export class NewsletterController {
     ) { }
 
     @Post('subscribe')
+    @ApiOperation({ summary: 'Suscribirse al boletín de noticias' })
+    @ApiBody({ schema: { type: 'object', properties: { email: { type: 'string', example: 'usuario@correo.com' } } } })
     async subscribe(@Body('email') email: string) {
         if (!email || !email.includes('@')) {
             throw new BadRequestException('Email no válido');
         }
 
-        const existing = await this.newsletterRepo.findOneBy({ email: email.toLowerCase() });
+        const emailLower = email.toLowerCase();
+        const existing = await this.newsletterRepo.findOneBy({ email: emailLower });
+
         if (existing) {
             if (existing.isActive) {
                 throw new ConflictException('Este correo ya está suscrito');
@@ -27,7 +33,7 @@ export class NewsletterController {
             return ApiResponse.success(null, 'Te has vuelto a suscribir correctamente');
         }
 
-        const subscription = this.newsletterRepo.create({ email: email.toLowerCase() });
+        const subscription = this.newsletterRepo.create({ email: emailLower });
         await this.newsletterRepo.save(subscription);
 
         return ApiResponse.success(null, '¡Gracias por suscribirte al newsletter!');

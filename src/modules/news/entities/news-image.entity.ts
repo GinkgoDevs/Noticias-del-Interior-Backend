@@ -32,6 +32,9 @@ export class NewsImageEntity {
     @Column({ default: 0 })
     position: number;
 
+    @Column({ type: 'varchar', length: 500, nullable: true })
+    caption?: string;
+
     @CreateDateColumn()
     createdAt: Date;
 }

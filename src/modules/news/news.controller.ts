@@ -10,6 +10,7 @@ import {
     UseGuards,
     Delete,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiResponse as SwaggerResponse, ApiBearerAuth } from '@nestjs/swagger';
 import { ApiResponse } from '../../common/dto/api-response.dto';
 import { PaginatedResponse } from '../../common/dto/pagination.dto';
 
@@ -25,6 +26,8 @@ import { Roles } from '../auth/decorators/roles.decorator';
 import { CurrentUser } from '../auth/decorators/current-user.decorator';
 import { UserRole, UserEntity } from '../users/entities/user.entity';
 
+@ApiTags('Admin - Noticias')
+@ApiBearerAuth()
 @Controller('admin/news')
 @UseGuards(JwtAuthGuard, RolesGuard)
 export class NewsController {
@@ -32,6 +35,8 @@ export class NewsController {
 
     @Post()
     @Roles(UserRole.ADMIN, UserRole.EDITOR)
+    @ApiOperation({ summary: 'Crear una nueva noticia' })
+    @SwaggerResponse({ status: 201, description: 'Noticia creada correctamente' })
     async create(
         @Body() dto: CreateNewsDto,
         @CurrentUser() user: UserEntity,
@@ -42,6 +47,8 @@ export class NewsController {
 
     @Patch(':id')
     @Roles(UserRole.ADMIN, UserRole.EDITOR)
+    @ApiOperation({ summary: 'Actualizar una noticia existente' })
+    @SwaggerResponse({ status: 200, description: 'Noticia actualizada correctamente' })
     async update(
         @Param('id', ParseUUIDPipe) id: string,
         @Body() dto: UpdateNewsDto,
@@ -52,35 +59,42 @@ export class NewsController {
 
     @Patch(':id/publish')
     @Roles(UserRole.ADMIN, UserRole.EDITOR)
+    @ApiOperation({ summary: 'Publicar una noticia' })
     async publish(
         @Param('id', ParseUUIDPipe) id: string,
         @Body() dto: PublishNewsDto,
     ) {
-        return this.newsService.publish(
+        const data = await this.newsService.publish(
             id,
             dto.publishedAt ? new Date(dto.publishedAt) : undefined,
         );
+        return ApiResponse.success(data, 'Noticia publicada');
     }
 
     @Patch(':id/schedule')
     @Roles(UserRole.ADMIN, UserRole.EDITOR)
+    @ApiOperation({ summary: 'Programar una noticia' })
     async schedule(
         @Param('id', ParseUUIDPipe) id: string,
         @Body() dto: ScheduleNewsDto,
     ) {
-        return this.newsService.schedule(id, new Date(dto.scheduledAt));
+        const data = await this.newsService.schedule(id, new Date(dto.scheduledAt));
+        return ApiResponse.success(data, 'Noticia programada');
     }
 
     @Patch(':id/archive')
     @Roles(UserRole.ADMIN)
+    @ApiOperation({ summary: 'Archivar una noticia' })
     async archive(
         @Param('id', ParseUUIDPipe) id: string,
     ) {
-        return this.newsService.archive(id);
+        const data = await this.newsService.archive(id);
+        return ApiResponse.success(data, 'Noticia archivada');
     }
 
     @Patch(':id/restore')
     @Roles(UserRole.ADMIN)
+    @ApiOperation({ summary: 'Restaurar una noticia eliminada (Soft Delete)' })
     async restore(
         @Param('id', ParseUUIDPipe) id: string,
     ) {
@@ -90,6 +104,7 @@ export class NewsController {
 
     @Delete(':id')
     @Roles(UserRole.ADMIN)
+    @ApiOperation({ summary: 'Eliminar una noticia (Soft Delete)' })
     async remove(
         @Param('id', ParseUUIDPipe) id: string,
     ) {
@@ -99,6 +114,7 @@ export class NewsController {
 
     @Get('dashboard')
     @Roles(UserRole.ADMIN, UserRole.EDITOR)
+    @ApiOperation({ summary: 'Obtener estadísticas del dashboard de noticias' })
     async getDashboard(@CurrentUser() user: UserEntity) {
         const authorId = user.role !== UserRole.ADMIN ? user.id : undefined;
         const data = await this.newsService.getDashboardStats(authorId);
@@ -107,8 +123,8 @@ export class NewsController {
 
     @Get()
     @Roles(UserRole.ADMIN, UserRole.EDITOR)
+    @ApiOperation({ summary: 'Listado de noticias para administración con filtros' })
     async findAllAdmin(@Query() dto: AdminFindNewsDto, @CurrentUser() user: UserEntity) {
-        // Seguridad: Si no es admin, forzar que solo vea sus propias noticias
         if (user.role !== UserRole.ADMIN) {
             dto.authorId = user.id;
         }
@@ -118,6 +134,7 @@ export class NewsController {
 
     @Get(':id')
     @Roles(UserRole.ADMIN, UserRole.EDITOR)
+    @ApiOperation({ summary: 'Obtener detalle de una noticia por ID' })
     async findOne(@Param('id', ParseUUIDPipe) id: string) {
         const data = await this.newsService.findById(id);
         return ApiResponse.success(data, 'Detalle de noticia');

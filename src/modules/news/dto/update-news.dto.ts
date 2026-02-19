@@ -44,6 +44,10 @@ export class UpdateNewsDto {
    @IsOptional()
    mainImageId?: string;
 
+   @IsString()
+   @IsOptional()
+   mainImageCaption?: string;
+
    /* =========================
       Relaciones
       ========================= */
@@ -103,5 +107,5 @@ export class UpdateNewsDto {
 
    @IsArray()
    @IsOptional()
-   images?: { url: string; publicId: string; position?: number }[];
+   images?: { url: string; publicId: string; position?: number; caption?: string }[];
 }

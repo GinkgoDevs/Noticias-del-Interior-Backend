@@ -56,6 +56,9 @@ export class NewsEntity {
    @Column({ nullable: true })
    mainImageId?: string; // Cloudinary Public ID
 
+   @Column({ type: 'varchar', length: 500, nullable: true })
+   mainImageCaption?: string;
+
    /* =========================
       Estado editorial
       ========================= */

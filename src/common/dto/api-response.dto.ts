@@ -1,11 +1,22 @@
+import { ApiProperty } from '@nestjs/swagger';
+
 /**
  * Respuesta estándar de la API
  */
 export class ApiResponse<T> {
+    @ApiProperty()
     success: boolean;
+
+    @ApiProperty({ required: false })
     data?: T;
+
+    @ApiProperty({ required: false })
     message?: string;
+
+    @ApiProperty({ required: false })
     error?: string;
+
+    @ApiProperty()
     timestamp: string;
 
     constructor(data?: T, message?: string) {

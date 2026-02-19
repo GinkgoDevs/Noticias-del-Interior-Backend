@@ -11,15 +11,19 @@ import { UploadModule } from './modules/upload/upload.module';
 import { GamesModule } from './modules/games/games.module';
 import { AdsModule } from './modules/ads/ads.module';
 import { NewsletterModule } from './modules/newsletter/newsletter.module';
+import { HealthModule } from './modules/health/health.module';
 import { ScheduleModule } from '@nestjs/schedule';
 import { ConfigModule, ConfigService } from '@nestjs/config';
-import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 import { APP_GUARD } from '@nestjs/core';
-import { AppController } from "./app.controller";
+import { envValidationSchema } from './config/env.validation';
+import { ThrottlerModule, ThrottlerGuard } from '@nestjs/throttler';
 
 @Module({
   imports: [
-    ConfigModule.forRoot({ isGlobal: true }),
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validationSchema: envValidationSchema,
+    }),
     ThrottlerModule.forRootAsync({
       imports: [ConfigModule],
       inject: [ConfigService],
@@ -46,9 +50,10 @@ import { AppController } from "./app.controller";
     GamesModule,
     AdsModule,
     NewsletterModule,
+    HealthModule,
     ScheduleModule.forRoot()
   ],
-  controllers: [AppController],
+  controllers: [],
   providers: [
     {
       provide: APP_GUARD,

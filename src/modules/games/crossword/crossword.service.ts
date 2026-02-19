@@ -21,7 +21,7 @@ interface PlacedWord extends AiWord {
 @Injectable()
 export class CrosswordService {
     private readonly logger = new Logger(CrosswordService.name);
-    private readonly size = 12;
+    private readonly size = 15; // Aumentado para un formato profesional de 15x15
 
     constructor(
         @InjectRepository(CrosswordDailyEntity)
@@ -69,11 +69,22 @@ export class CrosswordService {
 
         while (attempts < maxAttempts) {
             try {
+                this.logger.log(`Generation attempt ${attempts + 1}...`);
                 const aiWords = await this.getWordsFromAi();
-                const placedWords = this.tryGenerateGrid(aiWords);
+                const isFallback = aiWords.length > 45; // El fallback tiene 50+ palabras, los resultados de AI suelen ser ~45 o menos si hay filtros
 
-                if (placedWords && placedWords.length >= 5) { // Lower requirement to 5 for fallback/safety
-                    return await this.saveCrossword(date, placedWords);
+                // Intentamos varias veces con la misma lista de palabras pero diferentes órdenes/semillas
+                for (let seedIdx = 0; seedIdx < 15; seedIdx++) {
+                    const placedWords = this.tryGenerateGrid(aiWords, seedIdx);
+
+                    // Flexibilidad total: si estamos en el último intento o última semilla del fallback,
+                    // bajamos el requisito al mínimo posible para que el usuario pueda jugar.
+                    let minRequired = isFallback ? 14 : 18;
+                    if (seedIdx > 12) minRequired = isFallback ? 8 : 12;
+
+                    if (placedWords && placedWords.length >= minRequired) {
+                        return await this.saveCrossword(date, placedWords);
+                    }
                 }
             } catch (error: any) {
                 this.logger.error(`Attempt ${attempts + 1} failed: ${error.message}`);
@@ -85,94 +96,124 @@ export class CrosswordService {
     }
 
     private async getWordsFromAi(): Promise<AiWord[]> {
-        const apiKey = this.configService.get<string>('OPENAI_API_KEY');
-        if (!apiKey) {
-            this.logger.warn('OPENAI_API_KEY not found, using fallback words');
-            return this.getFallbackWords();
-        }
+        const geminiKey = this.configService.get<string>('GEMINI_API_KEY') || this.configService.get<string>('GOOGLE_API_KEY');
 
-        try {
-            const response = await axios.post(
-                'https://api.openai.com/v1/chat/completions',
-                {
-                    model: 'gpt-4o-mini',
-                    messages: [
+        if (geminiKey) {
+            const models = ['gemini-2.0-flash-lite', 'gemini-1.5-flash', 'gemini-1.5-flash-8b', 'gemini-1.5-pro'];
+
+            for (const model of models) {
+                try {
+                    this.logger.log(`Attempting to fetch words from Gemini model: ${model}...`);
+                    const prompt = `Genera una lista de 45 palabras para un crucigrama de CULTURA GENERAL de ALTA DIFICULTAD en ESPAÑOL.
+                Reglas CRÍTICAS:
+                1. PALABRAS: Solo letras A-Z y Ñ. SIN espacios, SIN tildes.
+                2. LONGITUD: Mix variado: 10 palabras de 3-4 letras, 20 de 5-7 letras, 15 de 8-12 letras.
+                3. PISTAS: Desafiantes, estilo académico o enciclopédico.
+                4. TEMÁTICA: Historia, Ciencia, Arte, Geografía Universal, Literatura.
+                5. FORMATO: JSON con propiedad "words" que sea un array de objetos con "word" y "clue".`;
+
+                    const response = await axios.post(
+                        `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
                         {
-                            role: 'system',
-                            content: 'Eres un experto creador de crucigramas profesionales. Tu objetivo es generar desafíos que sean precisos, sin errores de ortografía y con pistas claras pero desafiantes.'
-                        },
-                        {
-                            role: 'user',
-                            content: `Genera una lista de 15 palabras para un crucigrama de CULTURA GENERAL.
-              Reglas CRÍTICAS:
-              1. PALABRAS: Solo letras A-Z y Ñ. SIN espacios, SIN tildes, SIN caracteres especiales (excepto la Ñ). Verifica la ortografía.
-              2. LONGITUD: Entre 3 y 10 letras.
-              3. PISTAS: Deben ser PRECISAS y NO AMBIGUAS. Evita pistas que puedan referirse a múltiples palabras cortas comunes.
-              4. TEMÁTICA: Geografía, Historia, Ciencia, Arte, Deportes o Actualidad Internacional.
-              5. DIFICULTAD: Mezcla palabras fáciles con algunas más complejas, pero todas deben tener una respuesta única y clara.
-              6. FORMATO: Devuelve UN OBJETO JSON con una propiedad "words" que sea un array de objetos con "word" y "clue".`
+                            contents: [{
+                                parts: [{ text: prompt }]
+                            }]
                         }
-                    ],
-                    response_format: { type: "json_object" }
-                },
-                {
-                    headers: {
-                        'Authorization': `Bearer ${apiKey}`,
-                        'Content-Type': 'application/json'
-                    }
+                    );
+
+                    let text = response.data.candidates[0].content.parts[0].text;
+                    text = text.replace(/```json|```/g, '').trim();
+                    const content = JSON.parse(text);
+                    const rawWords = Array.isArray(content) ? content : (content.words || content.palabras || []);
+
+                    this.logger.log(`Received ${rawWords.length} words from Gemini (${model}).`);
+
+                    return rawWords.map((w: any) => ({
+                        word: (w.word || w.palabra || '').toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-ZÑ]/g, ""),
+                        clue: w.clue || w.pista || ''
+                    })).filter((w: any) => w.word.length >= 3 && w.word.length <= this.size);
+                } catch (error: any) {
+                    this.logger.warn(`Model ${model} failed (Status: ${error.response?.status}).`);
                 }
-            );
-
-            console.log(`AI Response received. Status: ${response.status}`);
-            let contentString = response.data.choices[0].message.content;
-            console.log('AI RAW:', contentString);
-
-            // Clean up markdown code blocks if the AI included them
-            if (contentString.includes('```')) {
-                contentString = contentString.replace(/```json|```/g, '').trim();
             }
-
-            const content = JSON.parse(contentString);
-            // Support { "words": [...] } or root array
-            const rawWords = Array.isArray(content) ? content : (content.words || content.palabras || []);
-
-            console.log(`Found ${rawWords.length} raw words from AI`);
-
-            const processed = rawWords.map((w: any) => ({
-                word: (w.word || w.palabra || '').toUpperCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "").replace(/[^A-ZÑ]/g, ""),
-                clue: w.clue || w.pista || ''
-            })).filter((w: any) => w.word.length >= 3 && w.word.length <= this.size);
-
-            console.log(`After filtering: ${processed.length} valid words for grid`);
-            return processed;
-        } catch (error: any) {
-            this.logger.error('Error calling AI:', error.response?.data || error.message);
-            return this.getFallbackWords();
         }
+
+        this.logger.warn('All Gemini models failed or no API key, using shuffled fallback words');
+        return this.shuffleFallbackWords(this.getFallbackWords());
+    }
+
+    private shuffleFallbackWords(words: AiWord[]): AiWord[] {
+        return [...words].sort(() => Math.random() - 0.5);
     }
 
     private getFallbackWords(): AiWord[] {
         return [
-            { word: 'ARGENTINA', clue: 'País del campeón del mundo 2022' },
-            { word: 'CÓRDOBA', clue: 'Provincia argentina famosa por el cuarteto' },
-            { word: 'PERRO', clue: 'El mejor amigo del hombre' },
-            { word: 'POLÍTICA', clue: 'Ciencia que trata del gobierno' },
-            { word: 'DIARIO', clue: 'Publicación impresa o digital diaria' },
-            { word: 'VERANO', clue: 'Estación más calurosa del año' },
-            { word: 'FÚTBOL', clue: 'Deporte más popular en Argentina' },
-            { word: 'HISTORIA', clue: 'Relato de hechos pasados' },
-            { word: 'Música', clue: 'Arte de combinar los sonidos' },
-            { word: 'ASADO', clue: 'Comida típica argentina hecha a la parrilla' },
+            { word: 'PERIPECIA', clue: 'En el drama o en la vida real, cambio repentino de situación.' },
+            { word: 'EPÍTOME', clue: 'Resumen o compendio de una obra extensa.' },
+            { word: 'BIÓSFERA', clue: 'Sistema formado por el conjunto de los seres vivos del planeta.' },
+            { word: 'EPISTEME', clue: 'En la filosofía de Platón, el saber verdadero.' },
+            { word: 'NICOSIA', clue: 'Capital de la República de Chipre.' },
+            { word: 'ESTUARIO', clue: 'Tramo de un río de gran anchura y caudal que desemboca en el mar.' },
+            { word: 'GORGONA', clue: 'En la mitología griega, monstruo femenino con serpientes por cabello.' },
+            { word: 'RENACER', clue: 'Volver a adquirir importancia o vigencia.' },
+            { word: 'QUIMERA', clue: 'Aquello que se propone a la imaginación como posible pero que no lo es.' },
+            { word: 'MECENAS', clue: 'Persona que patrocina las letras o las artes.' },
+            { word: 'PANTALÁN', clue: 'Muelle estrecho para el atraque de embarcaciones deportivas.' },
+            { word: 'BALUARTE', clue: 'Obra de fortificación de figura pentagonal.' },
+            { word: 'SINERGIA', clue: 'Acción de dos o más causas cuyo efecto es superior a la suma de efectos individuales.' },
+            { word: 'ONÍRICO', clue: 'Perteneciente o relativo a los sueños.' },
+            { word: 'ALBACEA', clue: 'Persona encargada por el testador para cumplir su última voluntad.' },
+            { word: 'ESTOICO', clue: 'Fuerte, ecuánime ante la desgracia.' },
+            { word: 'LITURGIA', clue: 'Orden y forma de las ceremonias religiosas.' },
+            { word: 'PALEONTÓLOGO', clue: 'Científico que estudia los organismos fósiles.' },
+            { word: 'HEGELIANO', clue: 'Seguidor de la filosofía de Hegel.' },
+            { word: 'DIATRIBA', clue: 'Discurso o escrito violento e injurioso contra alguien o algo.' },
+            { word: 'ACRÓNIMO', clue: 'Tipo de sigla que se pronuncia como una palabra.' },
+            { word: 'NÉMESIS', clue: 'Vengador de las injusticias, o enemigo irreconciliable.' },
+            { word: 'SOLILOQUIO', clue: 'Discurso que mantiene una persona consigo misma.' },
+            { word: 'PARADIGMA', clue: 'Ejemplo o modelo que sirve de norma en una disciplina.' },
+            { word: 'OSTRACISMO', clue: 'Aislamiento voluntario o forzoso de la vida pública.' },
+            { word: 'PLETÓRICO', clue: 'Que tiene gran abundancia de algo, especialmente de alegría o salud.' },
+            { word: 'METÁFORA', clue: 'Tropo consistente en trasladar el sentido recto de las voces a otro figurado.' },
+            { word: 'ANALOGÍA', clue: 'Relación de semejanza entre cosas distintas.' },
+            { word: 'HEDONISMO', clue: 'Teoría que establece el placer como fin de la vida.' },
+            { word: 'EMPIRISMO', clue: 'Sistema filosófico que basa el conocimiento en la experiencia.' },
+            { word: 'RETÓRICA', clue: 'Arte de bien decir, de dar al lenguaje eficacia para deleitar o conmover.' },
+            { word: 'ASTRONOMÍA', clue: 'Ciencia que trata de los astros.' },
+            { word: 'MITOLOGÍA', clue: 'Conjunto de mitos de un pueblo o cultura.' },
+            { word: 'ICONOCLASTA', clue: 'Que rechaza el culto a las imágenes sagradas.' },
+            { word: 'SARCASMO', clue: 'Burla sangrienta, ironía mordaz y cruel.' },
+            { word: 'UTOPÍA', clue: 'Plan, proyecto o sistema optimista que aparece como irrealizable.' },
+            { word: 'SUR', clue: 'Punto cardinal opuesto al norte.' },
+            { word: 'LUZ', clue: 'Agente físico que hace visibles los objetos.' },
+            { word: 'SAL', clue: 'Sustancia blanca y cristalina, muy soluble en agua.' },
+            { word: 'REY', clue: 'Monarca o soberano de un reino.' },
+            { word: 'ORO', clue: 'Elemento químico metálico de color amarillo, muy dúctil y maleable.' },
+            { word: 'ROMA', clue: 'Capital de Italia.' },
+            { word: 'ARTE', clue: 'Manifestación de la actividad humana mediante la cual se expresa una visión personal.' },
+            { word: 'MAR', clue: 'Masa de agua salada que cubre la mayor parte de la superficie de la tierra.' },
+            { word: 'ÉTICA', clue: 'Recto, conforme a la moral.' },
+            { word: 'SIGLO', clue: 'Período de cien años.' },
+            { word: 'MUNDO', clue: 'Conjunto de todo lo existente.' },
+            { word: 'CIELO', clue: 'Esfera aparente azul que rodea la tierra.' },
+            { word: 'URSS', clue: 'Antiguo estado federal de Eurasia (sigla).' },
+            { word: 'ONU', clue: 'Organización de las Naciones Unidas (sigla).' },
         ];
     }
 
-    private tryGenerateGrid(words: AiWord[]): PlacedWord[] | null {
-        // Sort by length descending
-        const sorted = [...words].sort((a, b) => b.word.length - a.word.length);
+    private tryGenerateGrid(words: AiWord[], seedIndex: number): PlacedWord[] | null {
+        // Sort by length descending, but we might want to skip some for different seeds
+        let sorted = [...words].sort((a, b) => b.word.length - a.word.length);
+
+        // En cada semilla, rotamos la primera palabra para variar la estructura inicial
+        if (seedIndex > 0 && sorted.length > seedIndex) {
+            const [item] = sorted.splice(seedIndex, 1);
+            sorted.unshift(item);
+        }
+
         const placed: PlacedWord[] = [];
         const grid = Array(this.size).fill(null).map(() => Array(this.size).fill(''));
 
-        this.logger.log(`Starting grid generation with ${sorted.length} words`);
         // Place first word in the middle
         const first = sorted.shift()!;
         const row = Math.floor(this.size / 2);
@@ -188,8 +229,7 @@ export class CrosswordService {
             }
         }
 
-        this.logger.log(`Grid completed with ${placed.length} words placed`);
-        return placed.length >= 5 ? placed : null;
+        return placed;
     }
 
     private findBestPosition(grid: string[][], word: string, placed: PlacedWord[]) {

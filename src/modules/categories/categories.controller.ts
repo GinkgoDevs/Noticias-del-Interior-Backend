@@ -9,6 +9,7 @@ import {
   UseGuards,
   Delete,
 } from '@nestjs/common';
+import { ApiTags, ApiOperation, ApiBearerAuth, ApiQuery } from '@nestjs/swagger';
 
 import { CategoryService } from './categories.service';
 import { CreateCategoryDto } from './dto/create-category.dto';
@@ -21,6 +22,7 @@ import { plainToInstance } from 'class-transformer';
 import { ApiResponse } from '../../common/dto/api-response.dto';
 import { CategoryResponseDto } from './dto/category-response.dto';
 
+@ApiTags('Taxonomía - Categorías')
 @Controller('categories')
 export class CategoryController {
   constructor(private readonly categoryService: CategoryService) { }
@@ -29,104 +31,85 @@ export class CategoryController {
   // 🌍 PUBLIC
   // =========================================================
 
-  /**
-   * Listado público de categorías activas
-   * GET /categories
-   */
   @Get()
+  @ApiOperation({ summary: 'Listar todas las categorías activas (Público)' })
   async findPublic() {
     const items = await this.categoryService.findAll(false);
     const data = plainToInstance(CategoryResponseDto, items);
     return ApiResponse.success(data, 'Categorías obtenidas correctamente');
   }
 
-  // =========================================================
-  // 🔐 ADMIN
-  // =========================================================
-
-  /**
-   * Listado admin (incluye inactivas)
-   * GET /categories/admin
-   */
-  @Get('admin')
-  @UseGuards(JwtAuthGuard, RolesGuard)
-  @Roles(UserRole.ADMIN, UserRole.EDITOR)
-  async findAllAdmin() {
-    const items = await this.categoryService.findAll(true);
-    // Para admin tal vez queremos ver el estado active, etc.
-    // Usamos el mismo DTO por simplicidad, o podríamos extenderlo.
-    // CategoryResponseDto tiene 'active'? No.
-    // Si queremos active, deberiamos agregarlo o usar la entidad directa
-    // Por ahora, devolvemos la entidad directa envuelta para admin
-    return ApiResponse.success(items, 'Listado administrativo');
-  }
-
-  /**
-   * Obtener categoría por SLUG
-   * GET /categories/slug/:slug
-   */
   @Get('slug/:slug')
+  @ApiOperation({ summary: 'Obtener detalle de una categoría por su slug (Público)' })
   async findBySlug(@Param('slug') slug: string) {
     const category = await this.categoryService.findBySlug(slug);
     const data = plainToInstance(CategoryResponseDto, category);
     return ApiResponse.success(data, 'Categoría obtenida');
   }
 
-  /**
-   * Obtener categoría por ID
-   * GET /categories/:id
-   */
   @Get(':id')
-  findOne(@Param('id') id: string) {
-    return this.categoryService.findById(id);
+  @ApiOperation({ summary: 'Obtener detalle de una categoría por su ID (Público)' })
+  async findOne(@Param('id') id: string) {
+    const data = await this.categoryService.findById(id);
+    return ApiResponse.success(data, 'Categoría obtenida');
   }
 
-  /**
-   * Crear categoría
-   * POST /categories
-   */
+  // =========================================================
+  // 🔐 ADMIN
+  // =========================================================
+
+  @Get('admin')
+  @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
+  @Roles(UserRole.ADMIN, UserRole.EDITOR)
+  @ApiOperation({ summary: 'Listar todas las categorías incluyendo inactivas (Admin)' })
+  async findAllAdmin() {
+    const items = await this.categoryService.findAll(true);
+    return ApiResponse.success(items, 'Listado administrativo');
+  }
+
   @Post()
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
-  create(@Body() dto: CreateCategoryDto) {
-    return this.categoryService.create(dto);
+  @ApiOperation({ summary: 'Crear una nueva categoría (Admin)' })
+  async create(@Body() dto: CreateCategoryDto) {
+    const data = await this.categoryService.create(dto);
+    return ApiResponse.success(data, 'Categoría creada');
   }
 
-  /**
-   * Editar categoría
-   * PATCH /categories/:id
-   */
   @Patch(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
-  update(
+  @ApiOperation({ summary: 'Actualizar una categoría existente (Admin)' })
+  async update(
     @Param('id') id: string,
     @Body() dto: UpdateCategoryDto,
   ) {
-    return this.categoryService.update(id, dto);
+    const data = await this.categoryService.update(id, dto);
+    return ApiResponse.success(data, 'Categoría actualizada');
   }
 
-  /**
-   * Activar / desactivar categoría
-   * PATCH /categories/:id/active
-   */
   @Patch(':id/active')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
-  setActive(
+  @ApiOperation({ summary: 'Activar o desactivar una categoría (Admin)' })
+  @ApiQuery({ name: 'value', type: Boolean, example: true })
+  async setActive(
     @Param('id') id: string,
     @Query('value') value: string,
   ) {
-    return this.categoryService.setActive(id, value === 'true');
+    const data = await this.categoryService.setActive(id, value === 'true');
+    return ApiResponse.success(data, `Categoría ${value === 'true' ? 'activada' : 'desactivada'}`);
   }
 
-  /**
-   * Eliminar categoría permanentemente
-   * DELETE /categories/:id
-   */
   @Delete(':id')
   @UseGuards(JwtAuthGuard, RolesGuard)
+  @ApiBearerAuth()
   @Roles(UserRole.ADMIN)
+  @ApiOperation({ summary: 'Eliminar permanentemente una categoría (Admin)' })
   async remove(@Param('id') id: string) {
     await this.categoryService.remove(id);
     return ApiResponse.success(null, 'Categoría eliminada');

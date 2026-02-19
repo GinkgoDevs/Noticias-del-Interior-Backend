@@ -109,6 +109,7 @@ export class NewsService {
             canonicalUrl: dto.canonicalUrl,
             mainImageUrl: dto.mainImageUrl,
             mainImageId: dto.mainImageId,
+            mainImageCaption: dto.mainImageCaption,
             category,
             author,
             tags,
@@ -122,6 +123,7 @@ export class NewsService {
                 url: img.url,
                 publicId: img.publicId,
                 position: img.position || 0,
+                caption: img.caption || undefined,
                 source: 'upload' as any
             })),
         });
@@ -190,6 +192,7 @@ export class NewsService {
                 url: img.url,
                 publicId: img.publicId,
                 position: img.position || 0,
+                caption: img.caption || undefined,
                 source: 'upload' as any
             })) as any;
         }
