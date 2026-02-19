@@ -4,6 +4,7 @@ import {
    Column,
    CreateDateColumn,
    UpdateDateColumn,
+   DeleteDateColumn,
    Index,
    ManyToOne,
    ManyToMany,
@@ -54,6 +55,9 @@ export class NewsEntity {
 
    @Column({ nullable: true })
    mainImageId?: string; // Cloudinary Public ID
+
+   @Column({ type: 'varchar', length: 500, nullable: true })
+   mainImageCaption?: string;
 
    /* =========================
       Estado editorial
@@ -163,4 +167,7 @@ export class NewsEntity {
 
    @UpdateDateColumn({ type: 'timestamp' })
    updatedAt: Date;
+
+   @DeleteDateColumn({ type: 'timestamp', nullable: true })
+   deletedAt?: Date | null;
 }

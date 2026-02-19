@@ -40,6 +40,35 @@ export class NewsService {
         private readonly cache: Cache,
     ) { }
 
+    private async ensureUniqueSlug(title: string, currentSlug?: string, excludeId?: string): Promise<string> {
+        let slug = currentSlug || title
+            .toLowerCase()
+            .normalize('NFD')
+            .replace(/[\u0300-\u036f]/g, '')
+            .replace(/[^\w\s-]/g, '')
+            .replace(/[\s_-]+/g, '-')
+            .replace(/^-+|-+$/g, '');
+
+        const query = this.newsRepo.createQueryBuilder('news')
+            .where('news.slug = :slug', { slug })
+            .withDeleted();
+
+        if (excludeId) {
+            query.andWhere('news.id != :excludeId', { excludeId });
+        }
+
+        const exists = await query.getOne();
+
+        if (exists) {
+            const randomSuffix = Math.random().toString(36).substring(2, 7);
+            slug = `${slug}-${randomSuffix}`;
+            // Recursividad por si el slug con sufijo también existe (poco probable pero seguro)
+            return this.ensureUniqueSlug(title, slug, excludeId);
+        }
+
+        return slug;
+    }
+
     /* =========================
        CREATE
        ========================= */
@@ -68,9 +97,11 @@ export class NewsService {
             ? await this.tagRepo.findBy({ id: In(dto.tagIds) })
             : [];
 
+        const slug = await this.ensureUniqueSlug(dto.title, dto.slug);
+
         const news = this.newsRepo.create({
             title: dto.title,
-            slug: dto.slug,
+            slug,
             excerpt: dto.excerpt,
             content: dto.content,
             seoTitle: dto.seoTitle,
@@ -78,11 +109,23 @@ export class NewsService {
             canonicalUrl: dto.canonicalUrl,
             mainImageUrl: dto.mainImageUrl,
             mainImageId: dto.mainImageId,
+            mainImageCaption: dto.mainImageCaption,
             category,
             author,
             tags,
-            status: dto.status || NewsStatus.DRAFT,
-            publishedAt: dto.status === NewsStatus.PUBLISHED ? new Date() : null,
+            status: dto.scheduledAt ? NewsStatus.DRAFT : (dto.status || NewsStatus.DRAFT),
+            publishedAt: (!dto.scheduledAt && dto.status === NewsStatus.PUBLISHED) ? new Date() : null,
+            scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+            featured: dto.featured || false,
+            externalId: dto.externalId,
+            legacyUrl: dto.legacyUrl,
+            images: dto.images?.map(img => ({
+                url: img.url,
+                publicId: img.publicId,
+                position: img.position || 0,
+                caption: img.caption || undefined,
+                source: 'upload' as any
+            })),
         });
 
         const saved = await this.newsRepo.save(news);
@@ -118,10 +161,11 @@ export class NewsService {
 
         if (
             news.status === NewsStatus.PUBLISHED &&
-            dto.status === NewsStatus.DRAFT
+            dto.status === NewsStatus.DRAFT &&
+            !dto.scheduledAt // Solo prohibir si NO es para programar
         ) {
             throw new ForbiddenException(
-                'Cannot revert a published news to draft',
+                'Cannot revert a published news to draft unless scheduling',
             );
         }
 
@@ -143,12 +187,36 @@ export class NewsService {
             });
         }
 
-        // Si cambia a publicado y no tenía fecha de publicación, asignarla
-        if (dto.status === NewsStatus.PUBLISHED && news.status !== NewsStatus.PUBLISHED && !news.publishedAt) {
-            news.publishedAt = new Date();
+        if (dto.images) {
+            news.images = dto.images.map(img => ({
+                url: img.url,
+                publicId: img.publicId,
+                position: img.position || 0,
+                caption: img.caption || undefined,
+                source: 'upload' as any
+            })) as any;
         }
 
-        Object.assign(news, dto);
+        // Si es borrador, permitimos cambio de slug/título con validación de unicidad
+        if (news.status !== NewsStatus.PUBLISHED && (dto.title || dto.slug)) {
+            news.slug = await this.ensureUniqueSlug(dto.title || news.title, dto.slug, id);
+        }
+
+        const { images, slug, ...updateData } = dto;
+        Object.assign(news, updateData);
+
+        if (dto.scheduledAt) {
+            // Caso 1: Programación editorial
+            news.scheduledAt = new Date(dto.scheduledAt);
+            news.status = NewsStatus.DRAFT;
+            news.publishedAt = null;
+        } else if (dto.status === NewsStatus.PUBLISHED) {
+            // Caso 2: Publicación inmediata
+            if (!news.publishedAt) {
+                news.publishedAt = new Date();
+            }
+            news.scheduledAt = null;
+        }
 
         const saved = await this.newsRepo.save(news);
 
@@ -276,9 +344,28 @@ export class NewsService {
         return saved;
     }
 
+    /**
+     * Recupera una noticia que fue borrada (Soft Delete)
+     */
+    async restoreSoftDeleted(id: string): Promise<NewsEntity> {
+        const news = await this.newsRepo.findOne({
+            where: { id },
+            withDeleted: true,
+        });
+
+        if (!news || !news.deletedAt) {
+            throw new NotFoundException('Deleted news not found');
+        }
+
+        await this.newsRepo.restore(id);
+        await this.cache.clear();
+
+        return this.findById(id);
+    }
+
     async remove(id: string): Promise<void> {
         const news = await this.findById(id);
-        await this.newsRepo.remove(news);
+        await this.newsRepo.softRemove(news);
         await this.cache.clear();
     }
 
@@ -300,6 +387,9 @@ export class NewsService {
 
         const { page = 1, limit = 10, categorySlug, tagSlug, search, featured } = dto;
 
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+
         const qb = this.newsRepo
             .createQueryBuilder('news')
             .leftJoinAndSelect('news.category', 'category')
@@ -308,7 +398,14 @@ export class NewsService {
             .leftJoinAndSelect('news.images', 'images') // Traer imágenes relacionadas
             .where('news.status = :status', { status: NewsStatus.PUBLISHED })
             .andWhere('news.publishedAt <= :now', { now: new Date() }) // 🛑 NO mostrar noticias futuras
-            .orderBy('news.publishedAt', 'DESC')
+            // Priority 1: Featured news from TODAY. Priority 0: Everything else.
+            .addSelect(
+                `(CASE WHEN news.featured = true AND news.publishedAt >= :today THEN 1 ELSE 0 END)`,
+                'priority'
+            )
+            .setParameters({ today })
+            .orderBy('priority', 'DESC')
+            .addOrderBy('news.publishedAt', 'DESC')
             .skip((page - 1) * limit)
             .take(limit);
 
@@ -351,14 +448,14 @@ export class NewsService {
         return result;
     }
 
-    async findPublicOne(slug: string): Promise<NewsEntity> {
+    async findPublicOne(slug: string, ip?: string): Promise<NewsEntity> {
         const cacheKey = `news:public:detail:${slug}`;
         const cached = await this.cache.get<NewsEntity>(cacheKey);
 
         if (cached) {
             // 🔥 Incremento asíncrono "fire & forget" incluso en cache hit
             // No hacemos await para no bloquear la respuesta
-            this.incrementView(cached.id).catch(err => console.error('Error incrementing view:', err));
+            this.incrementView(cached.id, ip).catch(err => console.error('Error incrementing view:', err));
             return cached;
         }
 
@@ -378,7 +475,7 @@ export class NewsService {
         }
 
         // 🔥 Incremento inicial
-        this.incrementView(news.id).catch(err => console.error('Error incrementing view:', err));
+        this.incrementView(news.id, ip).catch(err => console.error('Error incrementing view:', err));
 
         // Cachear detalle por 5 minutos
         await this.cache.set(cacheKey, news, 300 * 1000);
@@ -391,10 +488,19 @@ export class NewsService {
        ========================= */
 
     /**
-     * Incrementa el contador de vistas de forma atómica
+     * Incrementa el contador de vistas de forma atómica para un usuario único por IP cada 24hs
      */
-    async incrementView(id: string): Promise<void> {
+    async incrementView(id: string, ip?: string): Promise<void> {
         try {
+            if (ip) {
+                const lockKey = `view_lock:${id}:${ip}`;
+                const isLocked = await this.cache.get(lockKey);
+                if (isLocked) return;
+
+                // Bloquear por 24 horas para este par noticia:ip
+                await this.cache.set(lockKey, true, 24 * 60 * 60 * 1000);
+            }
+
             await this.newsRepo.increment({ id }, 'views', 1);
             await this.newsRepo.update(id, { lastViewedAt: new Date() });
         } catch (error) {
@@ -419,6 +525,7 @@ export class NewsService {
             .leftJoinAndSelect('news.category', 'category')
             .leftJoinAndSelect('news.author', 'author') // Necesario para cards
             .where('news.status = :status', { status: NewsStatus.PUBLISHED })
+            .andWhere('news.publishedAt <= :now', { now: new Date() }) // 🛑 NO mostrar noticias futuras
             .andWhere('news.publishedAt >= :date', { date: new Date(Date.now() - 30 * 24 * 60 * 60 * 1000) }) // Últimos 30 días
             .orderBy('news.views', 'DESC')
             .addOrderBy('news.publishedAt', 'DESC')
@@ -482,6 +589,7 @@ export class NewsService {
             dateTo,
             page = 1,
             limit = 20,
+            withDeleted = false,
         } = dto;
 
         const qb = this.newsRepo
@@ -492,6 +600,10 @@ export class NewsService {
             .orderBy('news.createdAt', 'DESC')
             .skip((page - 1) * limit)
             .take(limit);
+
+        if (withDeleted) {
+            qb.withDeleted();
+        }
 
         if (status) qb.andWhere('news.status = :status', { status });
         if (categoryId) qb.andWhere('category.id = :categoryId', { categoryId });
@@ -537,7 +649,9 @@ export class NewsService {
             query.where('news.authorId = :authorId', { authorId });
         }
 
-        const [total, published, draft, recent] = await Promise.all([
+        const statsQuery = query.clone();
+
+        const [total, published, draft, recent, totalViews, mostViewed, viewsByCategory] = await Promise.all([
             query.getCount(),
             query.clone().andWhere('news.status = :published', { published: NewsStatus.PUBLISHED }).getCount(),
             query.clone().andWhere('news.status = :draft', { draft: NewsStatus.DRAFT }).getCount(),
@@ -547,6 +661,22 @@ export class NewsService {
                 .orderBy('news.createdAt', 'DESC')
                 .take(5)
                 .getMany(),
+            // Total views
+            statsQuery.select('SUM(news.views)', 'sum').getRawOne().then(res => parseInt(res?.sum || '0')),
+            // Most viewed (top 5)
+            query.clone()
+                .leftJoinAndSelect('news.category', 'category')
+                .andWhere('news.status = :published', { published: NewsStatus.PUBLISHED })
+                .orderBy('news.views', 'DESC')
+                .take(5)
+                .getMany(),
+            // Views by category
+            query.clone()
+                .select('category.name', 'name')
+                .addSelect('SUM(news.views)', 'views')
+                .leftJoin('news.category', 'category')
+                .groupBy('category.name')
+                .getRawMany()
         ]);
 
         return {
@@ -554,6 +684,12 @@ export class NewsService {
             published,
             draft,
             recent,
+            totalViews,
+            mostViewed,
+            viewsByCategory: viewsByCategory.map(v => ({
+                name: v.name || 'Sin categoría',
+                views: parseInt(v.views || '0')
+            }))
         };
     }
 }

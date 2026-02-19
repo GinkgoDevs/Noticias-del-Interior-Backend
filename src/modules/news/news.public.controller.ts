@@ -1,4 +1,5 @@
-import { Controller, Get, Param, Query } from '@nestjs/common';
+import { Controller, Get, Param, Query, Ip } from '@nestjs/common';
+import { ApiTags, ApiOperation } from '@nestjs/swagger';
 import { NewsService } from './news.service';
 import { PublicFindNewsDto } from './dto/public-find-news.dto';
 import { plainToInstance } from 'class-transformer';
@@ -7,11 +8,13 @@ import { PaginatedResponse } from '../../common/dto/pagination.dto';
 import { NewsListResponseDto } from './dto/news-list-response.dto';
 import { NewsResponseDto } from './dto/news-response.dto';
 
+@ApiTags('Public - Noticias')
 @Controller('news')
 export class NewsPublicController {
     constructor(private readonly newsService: NewsService) { }
 
     @Get()
+    @ApiOperation({ summary: 'Obtener listado público de noticias con paginación y filtros' })
     async findAll(@Query() dto: PublicFindNewsDto) {
         const [items, total] = await this.newsService.findPublic(dto);
 
@@ -25,6 +28,7 @@ export class NewsPublicController {
     }
 
     @Get('latest')
+    @ApiOperation({ summary: 'Obtener las 5 noticias más recientes' })
     async findLatest() {
         const items = await this.newsService.findLatest(5);
         const data = plainToInstance(NewsListResponseDto, items);
@@ -32,6 +36,7 @@ export class NewsPublicController {
     }
 
     @Get('trending')
+    @ApiOperation({ summary: 'Obtener las 5 noticias más leídas (Trending)' })
     async findTrending() {
         const items = await this.newsService.findTrending(5);
         const data = plainToInstance(NewsListResponseDto, items);
@@ -39,8 +44,9 @@ export class NewsPublicController {
     }
 
     @Get(':slug')
-    async findOne(@Param('slug') slug: string) {
-        const item = await this.newsService.findPublicOne(slug);
+    @ApiOperation({ summary: 'Obtener detalle de una noticia pública por su slug' })
+    async findOne(@Param('slug') slug: string, @Ip() ip: string) {
+        const item = await this.newsService.findPublicOne(slug, ip);
         const data = plainToInstance(NewsResponseDto, item);
         return ApiResponse.success(data, 'Detalle de noticia');
     }
