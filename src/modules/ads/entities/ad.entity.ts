@@ -3,6 +3,7 @@ import { Entity, PrimaryGeneratedColumn, Column, CreateDateColumn, UpdateDateCol
 export enum AdPosition {
     HEADER = 'HEADER',
     SIDEBAR = 'SIDEBAR',
+    ARTICLE_SIDEBAR = 'ARTICLE_SIDEBAR', // Sidebar for the news page
     NEWS_LIST = 'NEWS_LIST',
     CONTENT = 'CONTENT', // Inside article content
     FOOTER = 'FOOTER',
