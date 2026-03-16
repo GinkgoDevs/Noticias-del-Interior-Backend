@@ -1,7 +1,8 @@
-import { Exclude, Expose, Type } from 'class-transformer';
+import { Expose, Exclude, Type } from 'class-transformer';
 import { CategoryResponseDto } from '../../categories/dto/category-response.dto';
 import { AuthorResponseDto } from '../../users/dto/author-response.dto';
 import { TagResponseDto } from '../../tags/dto/tag-response.dto';
+import { NewsImageResponseDto } from './news-image-response.dto';
 
 @Exclude()
 export class NewsResponseDto {
@@ -52,6 +53,10 @@ export class NewsResponseDto {
     @Expose()
     @Type(() => TagResponseDto)
     tags: TagResponseDto[];
+
+    @Expose()
+    @Type(() => NewsImageResponseDto)
+    images: NewsImageResponseDto[];
 
     constructor(partial: Partial<NewsResponseDto>) {
         Object.assign(this, partial);

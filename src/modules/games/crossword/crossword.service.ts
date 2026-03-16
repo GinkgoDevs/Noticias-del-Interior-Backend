@@ -233,7 +233,7 @@ export class CrosswordService {
     }
 
     private findBestPosition(grid: string[][], word: string, placed: PlacedWord[]) {
-        let bestPos = null;
+        let bestPos: { row: number, col: number, direction: CrosswordDirection } | null = null;
         let maxIntersections = 0;
 
         for (let r = 0; r < this.size; r++) {

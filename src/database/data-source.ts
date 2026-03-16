@@ -27,6 +27,10 @@ export const AppDataSource = new DataSource({
             ? { rejectUnauthorized: false }
             : undefined,
 
-    entities: [join(__dirname, '/../**/*.entity{.ts,.js}')],
-    migrations: [join(__dirname, '/migrations/*{.ts,.js}')],
+    entities: isProd
+        ? [__dirname + '/../**/*.entity.js']
+        : [__dirname + '/../**/*.entity.ts'],
+    migrations: isProd
+        ? [__dirname + '/migrations/*.js']
+        : [__dirname + '/migrations/*.ts'],
 });
