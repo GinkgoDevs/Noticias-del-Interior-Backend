@@ -16,6 +16,15 @@ export class AllExceptionsFilter implements ExceptionFilter {
         const { httpAdapter } = this.httpAdapterHost;
         const ctx = host.switchToHttp();
 
+        if (exception?.code === 'LIMIT_FILE_SIZE') {
+            const tooLarge = ApiResponse.error(
+                'PayloadTooLarge',
+                'El archivo supera el tamaño máximo de 80 MB',
+            );
+            httpAdapter.reply(ctx.getResponse(), tooLarge, HttpStatus.PAYLOAD_TOO_LARGE);
+            return;
+        }
+
         const httpStatus =
             exception instanceof HttpException
                 ? exception.getStatus()
